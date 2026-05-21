@@ -104,7 +104,7 @@ cp .env.example .env          # macOS/Linux
 python -m app.seed
 
 # 5. Start the API + worker + WS server
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --reload-dir app --port 8000
 ```
 
 Health check: <http://localhost:8000/health>
@@ -127,6 +127,25 @@ npm run dev
 ```
 
 Open <http://localhost:3000>.
+
+### Troubleshooting: “Cannot reach the backend”
+
+The frontend shows this red error when **nothing is listening on port 8000**.
+The Next.js app is fine; the **FastAPI server must be running in a separate terminal**.
+
+1. Open a **second** terminal in `backend/`.
+2. Run `.\start-backend.ps1` (Windows) or the manual commands in §2.1.
+3. Wait until you see: `Uvicorn running on http://127.0.0.1:8000`.
+4. Verify: open <http://localhost:8000/health> — you should see `{"status":"ok",...}`.
+5. Refresh <http://localhost:3000> and sign in again.
+
+If `uvicorn` crashes on startup with `email-validator is not installed`, run:
+
+```bash
+pip install email-validator "pydantic[email]"
+```
+
+On **Python 3.14**, `pip install` may hang while building `pydantic-core`. Use **Python 3.13** (`py -3.13 -m venv .venv313`) instead.
 
 ### 2.3 — Try the loop end-to-end
 
