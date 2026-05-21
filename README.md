@@ -147,6 +147,10 @@ pip install email-validator "pydantic[email]"
 
 On **Python 3.14**, `pip install` may hang while building `pydantic-core`. Use **Python 3.13** (`py -3.13 -m venv .venv313`) instead.
 
+### Host actions (score, pick winner, end room)
+
+Only the account that **created the room** (`rooms.host_id`) can perform host actions. If you see host controls but get `Host privileges required`, sign out and sign in as the room creator (e.g. `host@poiro.ai` if that account created the room). Hard-refresh after switching accounts.
+
 ### 2.3 — Try the loop end-to-end
 
 1. Sign in as **host@poiro.ai** in browser window A → create a room →

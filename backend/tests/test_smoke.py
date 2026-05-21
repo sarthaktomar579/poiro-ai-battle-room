@@ -11,6 +11,7 @@ import asyncio
 import os
 
 import pytest
+from fastapi import HTTPException
 
 # Use a throw-away SQLite database for the tests.
 os.environ["DATABASE_URL"] = "sqlite:///./data/test_poiro.db"
@@ -19,6 +20,7 @@ os.environ["AI_PROVIDER"] = "mock"
 from app.auth import create_access_token, decode_token, hash_password, verify_password  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app import models, services  # noqa: E402
+from app.deps import require_host  # noqa: E402
 from app.providers.mock import MockProvider  # noqa: E402
 
 
@@ -91,6 +93,32 @@ def test_leaderboard_orders_by_wins_then_score():
     assert lb[0].display_name == "Ada"
     assert lb[0].wins == 1
     assert lb[1].display_name == "Kai"
+
+
+def test_room_owner_can_require_host_without_participant_row():
+    with SessionLocal() as db:
+        host = models.User(email="owner@x", display_name="Owner", password_hash="x")
+        other = models.User(email="other@x", display_name="Other", password_hash="x")
+        db.add_all([host, other])
+        db.flush()
+        room = models.Room(code="OWN123", name="r", prompt="p", host_id=host.id)
+        db.add(room)
+        db.commit()
+
+        # Owner has no participant row yet (re-join edge case).
+        p = require_host(room.id, host, db)
+        assert p.role == models.ParticipantRole.host
+        db.commit()
+
+        db.add(
+            models.Participant(
+                room_id=room.id, user_id=other.id, role=models.ParticipantRole.participant
+            )
+        )
+        db.commit()
+        with pytest.raises(HTTPException) as exc:
+            require_host(room.id, other, db)
+        assert exc.value.status_code == 403
 
 
 def test_mock_provider_returns_output():

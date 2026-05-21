@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .. import events as ev
 from .. import models, schemas, services
 from ..database import get_db
-from ..deps import assert_room_host, get_current_user
+from ..deps import get_current_user, require_host
 from ..ws.manager import manager
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -173,7 +173,7 @@ async def end_room(
     room = db.get(models.Room, room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-    assert_room_host(room, user, db)
+    require_host(room.id, user, db)
 
     room.status = models.RoomStatus.ended
     _emit(db, room.id, ev.ROOM_STATE_CHANGED, {"status": room.status.value})

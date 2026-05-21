@@ -39,15 +39,6 @@ export default function RoomPage() {
     hydrate();
   }, [hydrate]);
 
-  // Keep local user in sync with the JWT (avoids host UI + 403 on host actions).
-  useEffect(() => {
-    if (!token) return;
-    api
-      .me()
-      .then((u) => setSession(token, u))
-      .catch(() => clear());
-  }, [token, setSession, clear]);
-
   useEffect(() => {
     if (token === null) {
       const t = setTimeout(() => {
@@ -57,14 +48,20 @@ export default function RoomPage() {
     }
   }, [token, router]);
 
-  // Initial load + WS connect
+  // Sync JWT user, then load room + websocket (re-run when account changes).
   useEffect(() => {
     if (!token || !params.code) return;
+
     let cancelled = false;
-    setLoading();
-    (async () => {
+
+    const load = async () => {
+      setLoading();
+      setActionError(null);
       try {
-        // Try to fetch; if not a participant yet, attempt to join (idempotent).
+        const me = await api.me();
+        if (cancelled) return;
+        setSession(token, me);
+
         let snapshot;
         try {
           snapshot = await api.roomByCode(params.code.toUpperCase());
@@ -76,8 +73,9 @@ export default function RoomPage() {
           }
         }
         if (cancelled) return;
-        setState(snapshot);
 
+        setState(snapshot);
+        sockRef.current?.stop();
         const sock = new RoomSocket({
           roomId: snapshot.room.id,
           token,
@@ -87,9 +85,14 @@ export default function RoomPage() {
         sock.start();
         sockRef.current = sock;
       } catch (e) {
-        if (!cancelled) setError(e instanceof ApiError ? e.message : "Could not load room");
+        if (!cancelled) {
+          if (e instanceof ApiError && e.status === 401) clear();
+          setError(e instanceof ApiError ? e.message : "Could not load room");
+        }
       }
-    })();
+    };
+
+    load();
 
     return () => {
       cancelled = true;
@@ -100,14 +103,9 @@ export default function RoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, params.code]);
 
-  // Prefer server-assigned role; fall back to room owner id.
+  // Only the room owner (rooms.host_id) may use host controls — matches backend.
   const isHost = useMemo(
-    () =>
-      Boolean(
-        state &&
-          (state.role === "host" ||
-            (user && state.room.host_id === user.id)),
-      ),
+    () => Boolean(state && user && state.room.host_id === user.id),
     [state, user],
   );
 

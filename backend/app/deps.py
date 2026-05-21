@@ -67,11 +67,49 @@ def require_participant(
     return p
 
 
+def _ensure_owner_participant(
+    room: models.Room, user: models.User, db: Session
+) -> models.Participant:
+    """Room creator always has an active host participant row."""
+    p = (
+        db.query(models.Participant)
+        .filter(
+            models.Participant.room_id == room.id,
+            models.Participant.user_id == user.id,
+        )
+        .first()
+    )
+    if not p:
+        p = models.Participant(
+            room_id=room.id,
+            user_id=user.id,
+            role=models.ParticipantRole.host,
+        )
+        db.add(p)
+        db.flush()
+    else:
+        p.role = models.ParticipantRole.host
+        p.is_active = True
+    return p
+
+
 def require_host(
     room_id: str,
     user: models.User,
     db: Session,
 ) -> models.Participant:
+    """Authoritative host check: ``rooms.host_id`` first, then participant role.
+
+    The room owner can always perform host actions even if their participant
+    row was missing or out of sync. This matches what the UI should show.
+    """
+    room = db.get(models.Room, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    if room.host_id == user.id:
+        return _ensure_owner_participant(room, user, db)
+
     p = require_participant(room_id, user, db)
     if p.role != models.ParticipantRole.host:
         raise HTTPException(status_code=403, detail="Host privileges required")
@@ -79,24 +117,5 @@ def require_host(
 
 
 def assert_room_host(room: models.Room, user: models.User, db: Session) -> None:
-    """Room owner (``rooms.host_id``) or participant with host role may act as host.
-
-    ``end_room`` previously only checked ``host_id``, while start/score/winner use
-    ``require_host`` (participant role). Those can disagree after re-seeds or when
-    the owner re-joins without a participant row — same user sees host UI but gets
-    "Only the host can end the room".
-    """
-    if room.host_id == user.id:
-        return
-    p = (
-        db.query(models.Participant)
-        .filter(
-            models.Participant.room_id == room.id,
-            models.Participant.user_id == user.id,
-            models.Participant.is_active.is_(True),
-        )
-        .first()
-    )
-    if p and p.role == models.ParticipantRole.host:
-        return
-    raise HTTPException(status_code=403, detail="Only the host can end the room")
+    """Same rules as ``require_host`` for endpoints that do not need the row."""
+    require_host(room.id, user, db)
