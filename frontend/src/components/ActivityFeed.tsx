@@ -44,7 +44,7 @@ export function ActivityFeed({ events }: { events: WSEvent[] }) {
           className="flex items-center gap-2 rounded-md border border-edge/60 bg-ink/40 px-2 py-1"
         >
           <span className="text-white/30">
-            {new Date(e.ts).toLocaleTimeString()}
+            {e.ts ? new Date(e.ts).toLocaleTimeString() : "—"}
           </span>
           <span className={colors[e.type] ?? "text-white/80"}>
             {labels[e.type] ?? e.type}

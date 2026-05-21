@@ -26,17 +26,43 @@ _SYSTEM_PRIMER = (
 )
 
 
+# Older defaults (e.g. gemini-1.5-flash) return 404 for many API keys now.
+_FALLBACK_MODELS = (
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-flash-latest",
+    "gemini-2.0-flash-lite",
+)
+
+
+def _normalize_model_name(model: str) -> str:
+    """Accept ``gemini-2.5-flash`` or ``models/gemini-2.5-flash``."""
+    m = (model or "").strip()
+    if m.startswith("models/"):
+        m = m[len("models/") :]
+    return m or _FALLBACK_MODELS[0]
+
+
 class GeminiProvider(AIProvider):
     name = "gemini"
 
-    def __init__(self, api_key: str, model: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         if genai is None:
             raise ProviderError("google-generativeai is not installed")
         if not api_key:
             raise ProviderError("GEMINI_API_KEY is empty")
         genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel(model)
-        self._model_name = model
+        self._api_key = api_key
+        self._model_name = _normalize_model_name(model)
+        self._models_to_try = self._build_model_chain(self._model_name)
+
+    @staticmethod
+    def _build_model_chain(primary: str) -> list[str]:
+        chain = [primary]
+        for m in _FALLBACK_MODELS:
+            if m not in chain:
+                chain.append(m)
+        return chain
 
     async def generate(self, prompt: str, *, context: str = "") -> GenerationResult:
         full_prompt = (
@@ -46,19 +72,35 @@ class GeminiProvider(AIProvider):
             "Respond with the campaign concept only."
         )
 
-        def _call() -> str:
-            try:
-                resp = self._model.generate_content(full_prompt)
-            except Exception as e:  # noqa: BLE001 - SDK raises many distinct types
-                msg = str(e).lower()
-                retriable = any(t in msg for t in ("rate", "timeout", "unavailable", "503", "429"))
-                raise ProviderError(f"Gemini error: {e}", retriable=retriable) from e
+        def _call() -> tuple[str, str]:
+            last_err: Optional[Exception] = None
+            for model_id in self._models_to_try:
+                try:
+                    model = genai.GenerativeModel(model_id)
+                    resp = model.generate_content(full_prompt)
+                    text: Optional[str] = getattr(resp, "text", None)
+                    if not text:
+                        raise ProviderError(
+                            "Gemini returned an empty response", retriable=False
+                        )
+                    return text.strip(), model_id
+                except ProviderError:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    last_err = e
+                    msg = str(e).lower()
+                    # Try the next model when this ID is unavailable.
+                    if "404" in msg or "not found" in msg or "not supported" in msg:
+                        continue
+                    retriable = any(
+                        t in msg for t in ("rate", "timeout", "unavailable", "503", "429")
+                    )
+                    raise ProviderError(f"Gemini error: {e}", retriable=retriable) from e
 
-            text: Optional[str] = getattr(resp, "text", None)
-            if not text:
-                # Safety blocks / empty responses fall here.
-                raise ProviderError("Gemini returned an empty response", retriable=False)
-            return text.strip()
+            raise ProviderError(
+                f"Gemini error: no working model in {self._models_to_try}. Last: {last_err}",
+                retriable=False,
+            ) from last_err
 
-        text = await asyncio.to_thread(_call)
-        return GenerationResult(output=text, provider=f"gemini:{self._model_name}")
+        text, used_model = await asyncio.to_thread(_call)
+        return GenerationResult(output=text, provider=f"gemini:{used_model}")
