@@ -15,28 +15,295 @@ polished, reliable implementation of one room and one round is better
 than a broad demo with fragile state.” Everything in this repo is on the
 critical path of that loop.
 
+**New here?** Jump to [Quick start](#1-quick-start--run-the-app) to run the app, then [How to use the app](#2-how-to-use-the-app) for a step-by-step walkthrough.
+
+**Repository:** https://github.com/sarthaktomar579/poiro-ai-battle-room
+
 ---
 
 ## Table of contents
 
-1. [Demo at a glance](#1-demo-at-a-glance)
-2. [Local setup](#2-local-setup)
-3. [Architecture overview](#3-architecture-overview)
-4. [Database schema](#4-database-schema)
-5. [Realtime event model](#5-realtime-event-model)
-6. [Generation job lifecycle](#6-generation-job-lifecycle)
-7. [Battle / judging mechanism (the intentional gap)](#7-battle--judging-mechanism-the-intentional-gap)
-8. [What is persisted vs. ephemeral](#8-what-is-persisted-vs-ephemeral)
-9. [Failure handling strategy](#9-failure-handling-strategy)
-10. [Roles & backend-enforced permissions](#10-roles--backend-enforced-permissions)
-11. [Tradeoffs & explicit non-goals](#11-tradeoffs--explicit-non-goals)
-12. [Known limitations](#12-known-limitations)
-13. [What I would improve with more time](#13-what-i-would-improve-with-more-time)
-14. [Repo layout](#14-repo-layout)
+**Run & use (start here)**
+
+1. [Quick start — run the app](#1-quick-start--run-the-app)
+2. [How to use the app](#2-how-to-use-the-app)
+3. [Configuration & demo accounts](#3-configuration--demo-accounts)
+4. [Troubleshooting](#4-troubleshooting)
+
+**Technical reference (for reviewers)**
+
+5. [Demo at a glance](#5-demo-at-a-glance)
+6. [Architecture overview](#6-architecture-overview)
+7. [Database schema](#7-database-schema)
+8. [Realtime event model](#8-realtime-event-model)
+9. [Generation job lifecycle](#9-generation-job-lifecycle)
+10. [Battle / judging mechanism](#10-battle--judging-mechanism-the-intentional-gap)
+11. [What is persisted vs. ephemeral](#11-what-is-persisted-vs-ephemeral)
+12. [Failure handling strategy](#12-failure-handling-strategy)
+13. [Roles & backend-enforced permissions](#13-roles--backend-enforced-permissions)
+14. [Tradeoffs & explicit non-goals](#14-tradeoffs--explicit-non-goals)
+15. [Known limitations](#15-known-limitations)
+16. [What I would improve with more time](#16-what-i-would-improve-with-more-time)
+17. [Repo layout](#17-repo-layout)
 
 ---
 
-## 1. Demo at a glance
+## 1. Quick start — run the app
+
+You need **two terminals** running at the same time: **backend** (port 8000) and **frontend** (port 3000).
+
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| Python | 3.11–3.13 recommended (3.14 may be slow to install deps) |
+| Node.js | 18+ (20 recommended) |
+| npm | Comes with Node |
+
+### Step 1 — Backend (Terminal 1)
+
+```powershell
+cd backend
+
+# Copy env file and add your Gemini key (optional — mock AI works without a key)
+copy .env.example .env
+# Edit .env → set GEMINI_API_KEY=your_key_here
+
+# Easiest: one script installs deps, seeds users, starts the API
+.\start-backend.ps1
+```
+
+**macOS / Linux:**
+
+```bash
+cd backend
+cp .env.example .env
+# edit .env with your GEMINI_API_KEY
+chmod +x start-backend.ps1  # if needed
+./start-backend.ps1
+```
+
+Wait until you see:
+
+```text
+Uvicorn running on http://127.0.0.1:8000
+```
+
+Check: open [http://localhost:8000/health](http://localhost:8000/health) — you should see `"status":"ok"`.
+
+API docs (optional): [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### Step 2 — Frontend (Terminal 2)
+
+```powershell
+cd frontend
+.\start-frontend.ps1
+```
+
+**macOS / Linux:**
+
+```bash
+cd frontend
+cp .env.local.example .env.local
+npm install
+npm run dev
+```
+
+Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+
+### Manual start (if scripts fail)
+
+**Backend:**
+
+```powershell
+cd backend
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m app.seed
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --reload-dir app --port 8000
+```
+
+**Frontend:**
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+## 2. How to use the app
+
+### Sign in or sign up
+
+1. Open [http://localhost:3000](http://localhost:3000).
+2. Use **Sign in** with a demo account (see [§3](#3-configuration--demo-accounts)), or **Sign up** with your own email and password.
+3. If you see a yellow **“Backend offline”** banner, start the backend first ([§1](#1-quick-start--run-the-app)).
+
+### Play a full battle (recommended demo)
+
+Use **two browser windows** (normal + incognito) to simulate host and contestants.
+
+#### Window A — Host
+
+1. Sign in as **`host@poiro.ai`** / password **`battleroom`**.
+2. Click **Create battle room**.
+3. Enter a room name and a creative brief (e.g. *“Create the most insane luxury cyberpunk perfume campaign for Gen-Z.”*).
+4. Copy the **6-character room code** (top-right, e.g. `RVES93`).
+5. Click **Start round** in the left **Host controls** panel.
+
+#### Window B — Participant
+
+1. Sign in as **`ada@poiro.ai`** / **`battleroom`** (or sign up as a new user).
+2. Click **Join room** and paste the code from the host.
+3. In **Round 1**, type a creative prompt and click **Submit to the battle**.
+4. Watch your card move through **`queued` → `running` → `completed`** (no refresh needed).
+
+#### Back to Host — Score & finish
+
+1. When all jobs finish, the round moves to **scoring** (yellow notice in host panel).
+2. On each completed card, drag the **score slider** (0–10) and click **Save score**.
+3. Click **Pick as winner** on the best submission.
+4. Optional: click **Start round** again for another round, or **End room** when done.
+
+### What each role can do
+
+| Action | Host (room creator) | Participant |
+|--------|---------------------|-------------|
+| Create room | Yes | — |
+| Join with code | Yes (as host) | Yes |
+| Start round | Yes | No |
+| Submit prompt | No | Yes (one per round) |
+| Score / pick winner | Yes | No |
+| End room | Yes | No |
+
+**Important:** Only the account that **created the room** can use host controls. If you created the room as `host@poiro.ai`, you must be signed in as that account to start rounds, score, or end the room.
+
+### Understanding the battle room screen
+
+| Area | Purpose |
+|------|---------|
+| **Host controls** (left) | Start round, end room (host only) |
+| **Participant panel** (left) | Submit prompt when round is open |
+| **Center** | Live round, submission cards, AI output |
+| **Realtime activity** (right) | WebSocket event log |
+| **Leaderboard** (left) | Wins + total scores after scoring |
+
+### Job status on each submission card
+
+| Status | Meaning |
+|--------|---------|
+| `queued` | Waiting for the AI worker |
+| `running` | Gemini (or mock) is generating |
+| `completed` | Output is ready to read and score |
+| `failed` | Error (see red message; may auto-retry once) |
+| `timed_out` | Took longer than the configured timeout |
+
+### Ending a room
+
+1. Host clicks **End room** and confirms.
+2. You should see a green message: **“Room ended. Thanks for hosting!”**
+3. The active round closes and the center shows **“Room ended”**.
+4. Status pill shows **ENDED**.
+
+---
+
+## 3. Configuration & demo accounts
+
+### Environment files
+
+**Backend** — copy `backend/.env.example` → `backend/.env`:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SECRET_KEY` | Yes | Random string for JWT signing |
+| `GEMINI_API_KEY` | No | Google AI key; if empty, mock AI is used |
+| `GEMINI_MODEL` | No | Default `gemini-2.5-flash` |
+| `AI_PROVIDER` | No | `gemini` or `mock` |
+| `DATABASE_URL` | No | Default SQLite at `./data/poiro.db` |
+
+**Frontend** — copy `frontend/.env.local.example` → `frontend/.env.local`:
+
+| Variable | Default |
+|----------|---------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` |
+| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000` |
+
+### Demo accounts (after `python -m app.seed`)
+
+| Email | Password | Typical use |
+|-------|----------|-------------|
+| `host@poiro.ai` | `battleroom` | Create room, host rounds |
+| `ada@poiro.ai` | `battleroom` | Join as contestant |
+| `kai@poiro.ai` | `battleroom` | Second contestant |
+
+---
+
+## 4. Troubleshooting
+
+### “Cannot reach the backend” (red error on login)
+
+The frontend is running but **nothing is on port 8000**.
+
+1. Start **Terminal 1** with `.\start-backend.ps1` in `backend/`.
+2. Wait for `Uvicorn running on http://127.0.0.1:8000`.
+3. Refresh [http://localhost:3000](http://localhost:3000).
+
+### `Activate.ps1` not found (Windows)
+
+Use the script (it does not need activation):
+
+```powershell
+.\start-backend.ps1
+```
+
+Or call Python directly:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --reload-dir app --port 8000
+```
+
+### `email-validator is not installed`
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install email-validator "pydantic[email]"
+```
+
+### Gemini 404 / “model not found”
+
+Set in `backend/.env`:
+
+```env
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+Restart the backend.
+
+### “Host privileges required” or “Only the host can end the room”
+
+You are signed in as a **participant**, not the **room creator**.
+
+1. Sign out.
+2. Sign in as the account that **created** the room (e.g. `host@poiro.ai` for demo rooms).
+3. Hard refresh (Ctrl+Shift+R).
+
+### End room seems to do nothing
+
+Update to the latest code and restart both servers. After ending, you should see a green success message and **Room ended** in the center. Old versions only changed a small status pill while the round still looked open.
+
+### Python 3.14 slow `pip install`
+
+Use Python 3.13:
+
+```powershell
+py -3.13 -m venv .venv313
+.\.venv313\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+---
+
+## 5. Demo at a glance
 
 ```
 Host  →  Create room  →  Share code  →  Start round
@@ -57,116 +324,11 @@ Participant joins  →  Submit prompt  →  Job queued
 * **Host vs participant**: the host *cannot* submit; participants
   *cannot* start rounds or score. Both rules are enforced server-side.
 
-### Seeded demo accounts
-
-`python -m app.seed` creates these so reviewers can sign in instantly:
-
-| Email           | Password     | Role idea     |
-|-----------------|--------------|---------------|
-| host@poiro.ai   | battleroom   | the host      |
-| ada@poiro.ai    | battleroom   | contestant #1 |
-| kai@poiro.ai    | battleroom   | contestant #2 |
+Demo logins are listed in [§3 Configuration & demo accounts](#3-configuration--demo-accounts).
 
 ---
 
-## 2. Local setup
-
-The repo is a two-package monorepo: `backend/` (FastAPI + SQLite) and
-`frontend/` (Next.js + TypeScript + Tailwind + Zustand).
-
-### Prerequisites
-
-* Python **3.11+**
-* Node **18+** (Node 20 recommended)
-* npm (bundled with Node)
-
-### 2.1 — Backend
-
-```bash
-cd backend
-
-# 1. Create + activate a virtualenv
-python -m venv .venv
-# Windows PowerShell:
-.\.venv\Scripts\Activate.ps1
-# macOS/Linux:
-# source .venv/bin/activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Configure env (Gemini optional — falls back to mock provider)
-cp .env.example .env          # macOS/Linux
-# copy .env.example .env      # Windows
-# then edit .env and paste your GEMINI_API_KEY
-
-# 4. Seed demo users (idempotent)
-python -m app.seed
-
-# 5. Start the API + worker + WS server
-uvicorn app.main:app --reload --reload-dir app --port 8000
-```
-
-Health check: <http://localhost:8000/health>
-Interactive docs: <http://localhost:8000/docs>
-
-### 2.2 — Frontend
-
-```bash
-cd frontend
-
-# 1. Install deps
-npm install
-
-# 2. Configure env
-cp .env.local.example .env.local     # macOS/Linux
-# copy .env.local.example .env.local # Windows
-
-# 3. Start Next.js
-npm run dev
-```
-
-Open <http://localhost:3000>.
-
-### Troubleshooting: “Cannot reach the backend”
-
-The frontend shows this red error when **nothing is listening on port 8000**.
-The Next.js app is fine; the **FastAPI server must be running in a separate terminal**.
-
-1. Open a **second** terminal in `backend/`.
-2. Run `.\start-backend.ps1` (Windows) or the manual commands in §2.1.
-3. Wait until you see: `Uvicorn running on http://127.0.0.1:8000`.
-4. Verify: open <http://localhost:8000/health> — you should see `{"status":"ok",...}`.
-5. Refresh <http://localhost:3000> and sign in again.
-
-If `uvicorn` crashes on startup with `email-validator is not installed`, run:
-
-```bash
-pip install email-validator "pydantic[email]"
-```
-
-On **Python 3.14**, `pip install` may hang while building `pydantic-core`. Use **Python 3.13** (`py -3.13 -m venv .venv313`) instead.
-
-### Host actions (score, pick winner, end room)
-
-Only the account that **created the room** (`rooms.host_id`) can perform host actions. If you see host controls but get `Host privileges required`, sign out and sign in as the room creator (e.g. `host@poiro.ai` if that account created the room). Hard-refresh after switching accounts.
-
-### 2.3 — Try the loop end-to-end
-
-1. Sign in as **host@poiro.ai** in browser window A → create a room →
-   copy the 6-character code that appears top-right.
-2. In an incognito window B, sign in as **ada@poiro.ai** and join with
-   the code.
-3. (Optional) Window C as **kai@poiro.ai**.
-4. As the host, hit **Start round**.
-5. In B and C, submit prompts. Watch the cards in window A stream from
-   `queued` → `running` → `completed` *without* refreshing.
-6. As the host, score each submission with the slider, then **Pick as
-   winner**. Leaderboard updates instantly in every window.
-
----
-
-## 3. Architecture overview
+## 6. Architecture overview
 
 ```
 ┌──────────────────────────────┐         ┌──────────────────────────────┐
@@ -221,7 +383,7 @@ Only the account that **created the room** (`rooms.host_id`) can perform host ac
 
 ---
 
-## 4. Database schema
+## 7. Database schema
 
 SQLite via SQLAlchemy 2.0. The schema mirrors the assignment's required
 entities so the README diagram and the code stay 1:1.
@@ -253,7 +415,7 @@ features.
 
 ---
 
-## 5. Realtime event model
+## 8. Realtime event model
 
 All event names live in [`backend/app/events.py`](backend/app/events.py)
 so the client and server cannot drift. Every WS payload is shaped:
@@ -286,7 +448,7 @@ reattach.
 
 ---
 
-## 6. Generation job lifecycle
+## 9. Generation job lifecycle
 
 ```
         ┌─────────┐    worker picks    ┌─────────┐
@@ -329,7 +491,7 @@ is already structured for it.
 
 ---
 
-## 7. Battle / judging mechanism (the intentional gap)
+## 10. Battle / judging mechanism (the intentional gap)
 
 The assignment intentionally leaves *“what makes one submission better
 than another”* open and asks us to defend our choice.
@@ -362,7 +524,7 @@ than another”* open and asks us to defend our choice.
 * **Single-rater variance.** No inter-rater reliability check.
 * **Cold start.** With 0 submissions, the leaderboard is empty.
 
-### How I would harden it in production (see §13)
+### How I would harden it in production (see §16)
 
 * Add a second axis: **audience voting** (1 vote per participant, 30s
   window after generation), and surface both scores.
@@ -372,7 +534,7 @@ than another”* open and asks us to defend our choice.
 
 ---
 
-## 8. What is persisted vs. ephemeral
+## 11. What is persisted vs. ephemeral
 
 Persisted (SQLite):
 
@@ -387,12 +549,12 @@ Ephemeral (in-process):
   room id"). On restart, clients reconnect and hydrate from the DB.
 * The asyncio job queue — *on restart, jobs that were `queued` in DB
   but never re-enqueued would stay in `queued` indefinitely.* This is a
-  known limitation (§12); a startup hook to re-enqueue any non-terminal
+  known limitation (§15); a startup hook to re-enqueue any non-terminal
   jobs would fix it in ~10 lines.
 
 ---
 
-## 9. Failure handling strategy
+## 12. Failure handling strategy
 
 | Failure                         | Surface                                              |
 |---------------------------------|------------------------------------------------------|
@@ -413,7 +575,7 @@ exploding submission can't hang the room.
 
 ---
 
-## 10. Roles & backend-enforced permissions
+## 13. Roles & backend-enforced permissions
 
 The assignment calls this out as a strong signal vs. a common pitfall.
 Every privileged action goes through one of two FastAPI dependencies:
@@ -439,7 +601,7 @@ returns a 403.
 
 ---
 
-## 11. Tradeoffs & explicit non-goals
+## 14. Tradeoffs & explicit non-goals
 
 | Tradeoff                                        | Reason                                                                                 |
 |-------------------------------------------------|----------------------------------------------------------------------------------------|
@@ -458,7 +620,7 @@ explicit non-goals.
 
 ---
 
-## 12. Known limitations
+## 15. Known limitations
 
 1. **Worker is in-process.** If the server crashes mid-round, jobs that
    were `running` will not be picked back up on restart. I do persist
@@ -482,7 +644,7 @@ explicit non-goals.
 
 ---
 
-## 13. What I would improve with more time
+## 16. What I would improve with more time
 
 In rough priority order:
 
@@ -506,7 +668,7 @@ In rough priority order:
 
 ---
 
-## 14. Repo layout
+## 17. Repo layout
 
 ```
 poiro-ai-battle-room/
@@ -514,6 +676,7 @@ poiro-ai-battle-room/
 ├── .gitignore
 ├── backend/
 │   ├── .env.example
+│   ├── start-backend.ps1    ← one-command setup + run (Windows/macOS/Linux)
 │   ├── requirements.txt
 │   └── app/
 │       ├── main.py          ← FastAPI app + lifespan + CORS
@@ -541,6 +704,7 @@ poiro-ai-battle-room/
 │           └── ws.py        ← /ws/rooms/{id} handshake + snapshot push
 └── frontend/
     ├── .env.local.example
+    ├── start-frontend.ps1     ← install deps + npm run dev
     ├── package.json
     ├── tailwind.config.ts
     ├── tsconfig.json
