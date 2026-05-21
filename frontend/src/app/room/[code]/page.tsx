@@ -33,6 +33,7 @@ export default function RoomPage() {
   } = useRoomStore();
   const sockRef = useRef<RoomSocket | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -209,6 +210,11 @@ export default function RoomPage() {
         </div>
       </header>
 
+      {actionSuccess && (
+        <div className="mb-4 rounded-xl border border-ok/40 bg-ok/10 px-3 py-2 text-sm text-ok">
+          {actionSuccess}
+        </div>
+      )}
       {actionError && (
         <div className="mb-4 rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
           {actionError}
@@ -219,7 +225,18 @@ export default function RoomPage() {
         {/* Left: role-specific control panel + participants + leaderboard */}
         <aside className="space-y-4">
           {isHost ? (
-            <HostControls state={state} onError={setActionError} />
+            <HostControls
+              state={state}
+              onError={(msg) => {
+                setActionError(msg);
+                setActionSuccess(null);
+              }}
+              onSuccess={(msg) => {
+                setActionSuccess(msg);
+                setActionError(null);
+              }}
+              onRoomUpdated={setState}
+            />
           ) : user ? (
             <ParticipantPanel state={state} user={user} onError={setActionError} />
           ) : null}
@@ -257,7 +274,23 @@ export default function RoomPage() {
 
         {/* Center: live round */}
         <section className="space-y-4">
-          {round ? (
+          {state.room.status === "ended" && !round ? (
+            <div className="panel p-10 text-center">
+              <h3 className="font-display text-xl font-semibold text-muted">
+                Room ended
+              </h3>
+              <p className="mt-2 text-sm text-white/60">
+                This battle is closed. Start a new room from the dashboard if you want
+                to play again.
+              </p>
+              <button
+                className="btn-primary mt-6"
+                onClick={() => router.push("/dashboard")}
+              >
+                Back to dashboard
+              </button>
+            </div>
+          ) : round ? (
             <>
               <div className="panel flex flex-wrap items-center justify-between gap-3 p-4">
                 <div>

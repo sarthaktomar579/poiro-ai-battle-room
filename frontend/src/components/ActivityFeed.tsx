@@ -4,7 +4,7 @@ const labels: Record<string, string> = {
   "room.snapshot": "Connected",
   "room.participant_joined": "Joined",
   "room.participant_left": "Left",
-  "room.state_changed": "Room",
+  "room.state_changed": "Room updated",
   "round.started": "Round started",
   "round.submission_created": "New submission",
   "round.state_changed": "Round",

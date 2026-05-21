@@ -8,9 +8,11 @@ import { api, ApiError } from "@/lib/api";
 interface Props {
   state: RoomState;
   onError?: (msg: string) => void;
+  onSuccess?: (msg: string) => void;
+  onRoomUpdated?: (state: RoomState) => void;
 }
 
-export function HostControls({ state, onError }: Props) {
+export function HostControls({ state, onError, onSuccess, onRoomUpdated }: Props) {
   const [prompt, setPrompt] = useState(state.room.prompt);
   const [busy, setBusy] = useState(false);
 
@@ -30,11 +32,18 @@ export function HostControls({ state, onError }: Props) {
     }
   };
 
+  const roomEnded = state.room.status === "ended";
+
   const endRoom = async () => {
-    if (!confirm("End the room? Participants will lose write access.")) return;
+    if (roomEnded) return;
+    if (!confirm("End the room? The active round will close and no new submissions will be accepted.")) {
+      return;
+    }
     setBusy(true);
     try {
-      await api.endRoom(state.room.id);
+      const updated = await api.endRoom(state.room.id);
+      onRoomUpdated?.(updated);
+      onSuccess?.("Room ended. Thanks for hosting!");
     } catch (e) {
       onError?.(e instanceof ApiError ? e.message : "Could not end room");
     } finally {
@@ -83,9 +92,15 @@ export function HostControls({ state, onError }: Props) {
         </div>
       )}
 
-      <button className="btn-danger w-full" onClick={endRoom} disabled={busy}>
-        End room
-      </button>
+      {roomEnded ? (
+        <div className="rounded-xl border border-edge bg-ink/40 px-3 py-3 text-sm text-muted">
+          This room has ended. Head back to the dashboard to start a new battle.
+        </div>
+      ) : (
+        <button className="btn-danger w-full" onClick={endRoom} disabled={busy}>
+          {busy ? "Ending room..." : "End room"}
+        </button>
+      )}
     </section>
   );
 }

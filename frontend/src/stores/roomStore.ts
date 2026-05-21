@@ -117,9 +117,40 @@ export const useRoomStore = create<State>((set, get) => ({
       }
 
       case "room.state_changed": {
-        const p = e.payload as { status?: RoomState["room"]["status"] };
-        if (p.status) {
-          next = { ...prev, room: { ...prev.room, status: p.status } };
+        const p = e.payload as {
+          status?: RoomState["room"]["status"];
+          current_round_id?: string | null;
+        };
+        if (p.status === "ended") {
+          const closed = prev.current_round
+            ? {
+                ...prev.current_round,
+                status: "completed" as const,
+                ended_at: e.ts,
+              }
+            : null;
+          next = {
+            ...prev,
+            room: {
+              ...prev.room,
+              status: "ended",
+              current_round_id: null,
+            },
+            current_round: null,
+            past_rounds: closed ? [closed, ...prev.past_rounds] : prev.past_rounds,
+          };
+        } else if (p.status) {
+          next = {
+            ...prev,
+            room: {
+              ...prev.room,
+              status: p.status,
+              current_round_id:
+                p.current_round_id !== undefined
+                  ? p.current_round_id
+                  : prev.room.current_round_id,
+            },
+          };
         }
         break;
       }

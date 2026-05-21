@@ -1,6 +1,7 @@
 """Room lifecycle endpoints (create, join, get state, list mine)."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -175,9 +176,40 @@ async def end_room(
         raise HTTPException(status_code=404, detail="Room not found")
     require_host(room.id, user, db)
 
+    if room.status == models.RoomStatus.ended:
+        return services.build_room_state(db, room, user)
+
+    closed_round_id: str | None = None
+    if room.current_round_id:
+        rnd = db.get(models.Round, room.current_round_id)
+        if rnd and rnd.status != models.RoundStatus.completed:
+            rnd.status = models.RoundStatus.completed
+            rnd.ended_at = datetime.utcnow()
+            closed_round_id = rnd.id
+            db.add(
+                models.Event(
+                    room_id=room.id,
+                    type=ev.ROUND_COMPLETED,
+                    payload={"round_id": rnd.id, "reason": "room_ended"},
+                )
+            )
+        room.current_round_id = None
+
     room.status = models.RoomStatus.ended
     _emit(db, room.id, ev.ROOM_STATE_CHANGED, {"status": room.status.value})
     db.commit()
+    db.refresh(room)
 
-    await manager.broadcast(room.id, ev.ROOM_STATE_CHANGED, {"status": room.status.value})
+    await manager.broadcast(
+        room.id,
+        ev.ROOM_STATE_CHANGED,
+        {"status": room.status.value, "current_round_id": None},
+    )
+    if closed_round_id:
+        await manager.broadcast(
+            room.id,
+            ev.ROUND_COMPLETED,
+            {"round_id": closed_round_id, "room_status": "ended"},
+        )
+
     return services.build_room_state(db, room, user)
