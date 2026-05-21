@@ -56,6 +56,15 @@ async function request<T>(
   return (await res.json()) as T;
 }
 
+export async function checkBackendHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/health`, { method: "GET" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export const api = {
   signup: (body: { email: string; password: string; display_name: string }) =>
     request<AuthResponse>("/auth/signup", {

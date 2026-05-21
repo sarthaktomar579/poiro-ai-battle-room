@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, checkBackendHealth } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 
 type Mode = "login" | "signup";
@@ -17,10 +17,25 @@ export default function LandingPage() {
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [backendUp, setBackendUp] = useState<boolean | null>(null);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    let alive = true;
+    const probe = async () => {
+      const ok = await checkBackendHealth();
+      if (alive) setBackendUp(ok);
+    };
+    probe();
+    const id = setInterval(probe, 8000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
 
   useEffect(() => {
     if (token) router.replace("/dashboard");
@@ -77,6 +92,14 @@ export default function LandingPage() {
         </section>
 
         <section className="panel p-7">
+          {backendUp === false && (
+            <div className="mb-4 rounded-xl border border-warn/50 bg-warn/10 px-3 py-3 text-sm text-warn">
+              <strong>Backend offline.</strong> Start FastAPI in another terminal:{" "}
+              <code className="text-xs">cd backend &amp;&amp; .\start-backend.ps1</code>
+              {" "}— then wait for{" "}
+              <code className="text-xs">Uvicorn running on http://127.0.0.1:8000</code>.
+            </div>
+          )}
           <div className="mb-5 flex items-center justify-between">
             <h2 className="font-display text-xl font-semibold">
               {mode === "login" ? "Sign in" : "Create an identity"}
