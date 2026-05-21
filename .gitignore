@@ -1,0 +1,61 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------- Node / Next ----------
+node_modules/
+.next/
+out/
+.turbo/
+.swc/
+dist/
+build/
+*.tsbuildinfo
+
+# ---------- Env / Secrets ----------
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+!.env.local.example
+
+# ---------- Database / Local data ----------
+*.sqlite
+*.sqlite3
+*.db
+backend/data/
+backend/*.db
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Editors ----------
+.idea/
+.vscode/
+*.swp
+
+# ---------- Logs ----------
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---------- Misc ----------
+coverage/
+.tmp/
+.cache/
