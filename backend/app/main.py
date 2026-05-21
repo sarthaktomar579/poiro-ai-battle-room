@@ -2,7 +2,7 @@
 
 Run with:
 
-    uvicorn app.main:app --reload --port 8000
+    uvicorn app.main:app --reload --reload-dir app --port 8000
 
 The lifespan hook spins up the in-process job worker pool and creates the
 SQLite schema on first boot.
