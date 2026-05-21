@@ -17,7 +17,7 @@ import { SubmissionCard } from "@/components/SubmissionCard";
 export default function RoomPage() {
   const params = useParams<{ code: string }>();
   const router = useRouter();
-  const { token, user, hydrate } = useAuthStore();
+  const { token, user, hydrate, setSession, clear } = useAuthStore();
   const {
     status,
     error,
@@ -38,6 +38,15 @@ export default function RoomPage() {
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  // Keep local user in sync with the JWT (avoids host UI + 403 on host actions).
+  useEffect(() => {
+    if (!token) return;
+    api
+      .me()
+      .then((u) => setSession(token, u))
+      .catch(() => clear());
+  }, [token, setSession, clear]);
 
   useEffect(() => {
     if (token === null) {
@@ -91,8 +100,14 @@ export default function RoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, params.code]);
 
+  // Prefer server-assigned role; fall back to room owner id.
   const isHost = useMemo(
-    () => Boolean(state && user && state.room.host_id === user.id),
+    () =>
+      Boolean(
+        state &&
+          (state.role === "host" ||
+            (user && state.room.host_id === user.id)),
+      ),
     [state, user],
   );
 

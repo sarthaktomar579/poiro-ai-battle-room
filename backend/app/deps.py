@@ -76,3 +76,27 @@ def require_host(
     if p.role != models.ParticipantRole.host:
         raise HTTPException(status_code=403, detail="Host privileges required")
     return p
+
+
+def assert_room_host(room: models.Room, user: models.User, db: Session) -> None:
+    """Room owner (``rooms.host_id``) or participant with host role may act as host.
+
+    ``end_room`` previously only checked ``host_id``, while start/score/winner use
+    ``require_host`` (participant role). Those can disagree after re-seeds or when
+    the owner re-joins without a participant row — same user sees host UI but gets
+    "Only the host can end the room".
+    """
+    if room.host_id == user.id:
+        return
+    p = (
+        db.query(models.Participant)
+        .filter(
+            models.Participant.room_id == room.id,
+            models.Participant.user_id == user.id,
+            models.Participant.is_active.is_(True),
+        )
+        .first()
+    )
+    if p and p.role == models.ParticipantRole.host:
+        return
+    raise HTTPException(status_code=403, detail="Only the host can end the room")

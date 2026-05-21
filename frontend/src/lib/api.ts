@@ -48,7 +48,10 @@ async function request<T>(
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body?.detail || detail;
+      const raw = body?.detail;
+      if (typeof raw === "string") detail = raw;
+      else if (Array.isArray(raw) && raw[0]?.msg) detail = raw[0].msg;
+      else if (raw) detail = String(raw);
     } catch {}
     throw new ApiError(detail, res.status);
   }

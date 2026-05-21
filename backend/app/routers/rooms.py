@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .. import events as ev
 from .. import models, schemas, services
 from ..database import get_db
-from ..deps import get_current_user
+from ..deps import assert_room_host, get_current_user
 from ..ws.manager import manager
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -82,7 +82,16 @@ async def join_room(
         return services.build_room_state(db, room, user)
 
     if room.host_id == user.id:
-        # Host re-joining their own room is fine, but they're already host.
+        # Ensure the owner always has a host participant row (re-join / refresh).
+        if not existing:
+            db.add(
+                models.Participant(
+                    room_id=room.id,
+                    user_id=user.id,
+                    role=models.ParticipantRole.host,
+                )
+            )
+            db.commit()
         return services.build_room_state(db, room, user)
 
     db.add(
@@ -164,8 +173,7 @@ async def end_room(
     room = db.get(models.Room, room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-    if room.host_id != user.id:
-        raise HTTPException(status_code=403, detail="Only the host can end the room")
+    assert_room_host(room, user, db)
 
     room.status = models.RoomStatus.ended
     _emit(db, room.id, ev.ROOM_STATE_CHANGED, {"status": room.status.value})

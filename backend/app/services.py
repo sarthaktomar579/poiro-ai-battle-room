@@ -164,7 +164,12 @@ def build_room_state(
         )
         .first()
     )
-    role = participant.role if participant else models.ParticipantRole.participant
+    if participant:
+        role = participant.role
+    elif room.host_id == user.id:
+        role = models.ParticipantRole.host
+    else:
+        role = models.ParticipantRole.participant
 
     current_round: Optional[schemas.RoundOut] = None
     if room.current_round_id:
