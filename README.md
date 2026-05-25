@@ -29,22 +29,23 @@ critical path of that loop.
 2. [How to use the app](#2-how-to-use-the-app)
 3. [Configuration & demo accounts](#3-configuration--demo-accounts)
 4. [Troubleshooting](#4-troubleshooting)
+5. [Deploy: Railway (backend) + Vercel (frontend)](#5-deploy-railway-backend--vercel-frontend)
 
 **Technical reference (for reviewers)**
 
-5. [Demo at a glance](#5-demo-at-a-glance)
-6. [Architecture overview](#6-architecture-overview)
-7. [Database schema](#7-database-schema)
-8. [Realtime event model](#8-realtime-event-model)
-9. [Generation job lifecycle](#9-generation-job-lifecycle)
-10. [Battle / judging mechanism](#10-battle--judging-mechanism-the-intentional-gap)
-11. [What is persisted vs. ephemeral](#11-what-is-persisted-vs-ephemeral)
-12. [Failure handling strategy](#12-failure-handling-strategy)
-13. [Roles & backend-enforced permissions](#13-roles--backend-enforced-permissions)
-14. [Tradeoffs & explicit non-goals](#14-tradeoffs--explicit-non-goals)
-15. [Known limitations](#15-known-limitations)
-16. [What I would improve with more time](#16-what-i-would-improve-with-more-time)
-17. [Repo layout](#17-repo-layout)
+6. [Demo at a glance](#6-demo-at-a-glance)
+7. [Architecture overview](#7-architecture-overview)
+8. [Database schema](#8-database-schema)
+9. [Realtime event model](#9-realtime-event-model)
+10. [Generation job lifecycle](#10-generation-job-lifecycle)
+11. [Battle / judging mechanism](#11-battle--judging-mechanism-the-intentional-gap)
+12. [What is persisted vs. ephemeral](#12-what-is-persisted-vs-ephemeral)
+13. [Failure handling strategy](#13-failure-handling-strategy)
+14. [Roles & backend-enforced permissions](#14-roles--backend-enforced-permissions)
+15. [Tradeoffs & explicit non-goals](#15-tradeoffs--explicit-non-goals)
+16. [Known limitations](#16-known-limitations)
+17. [What I would improve with more time](#17-what-i-would-improve-with-more-time)
+18. [Repo layout](#18-repo-layout)
 
 ---
 
@@ -303,7 +304,179 @@ py -3.13 -m venv .venv313
 
 ---
 
-## 5. Demo at a glance
+## 5. Deploy: Railway (backend) + Vercel (frontend)
+
+Use this for a **hosted demo link** that stays up (unlike Render’s free tier sleep).  
+**Order matters:** deploy Railway first → get API URL → deploy Vercel → fix CORS on Railway.
+
+### What you will get
+
+| Service | URL example |
+|---------|-------------|
+| Frontend (submit this link) | `https://poiro-battle-room.vercel.app` |
+| Backend API | `https://poiro-api-production.up.railway.app` |
+| Health check | `https://YOUR-RAILWAY-URL/health` |
+
+---
+
+### Part A — Backend on Railway (~15 min)
+
+#### A1. Create a Railway account
+
+1. Go to [railway.app](https://railway.app) and sign in with **GitHub**.
+2. You need a payment method for the Hobby plan (~$5/month usage) — Railway no longer has a permanent free tier, but the app is small and usually costs a few dollars for a demo week.
+
+#### A2. New project from GitHub
+
+1. Click **New Project** → **Deploy from GitHub repo**.
+2. Select **`sarthaktomar579/poiro-ai-battle-room`** (authorize GitHub if asked).
+3. Railway creates a service from the repo.
+
+#### A3. Set the root directory to `backend`
+
+1. Open the new **service** → **Settings**.
+2. Find **Root Directory** (or **Source** → **Root Directory**).
+3. Set it to: **`backend`**
+4. Save. Railway will redeploy using `backend/requirements.txt` and `backend/railway.toml`.
+
+#### A4. Generate a public URL
+
+1. Open the service → **Settings** → **Networking** (or **Public Networking**).
+2. Click **Generate Domain**.
+3. Copy the URL, e.g. `https://poiro-api-production.up.railway.app`  
+   — call this **`RAILWAY_URL`** for the steps below.
+
+#### A5. Add environment variables
+
+Open **Variables** tab and add:
+
+| Variable | Value |
+|----------|--------|
+| `SECRET_KEY` | A long random string (e.g. 64 chars) — **required** |
+| `GEMINI_API_KEY` | Your Google AI Studio key |
+| `GEMINI_MODEL` | `gemini-2.5-flash` |
+| `AI_PROVIDER` | `gemini` |
+| `DATABASE_URL` | `sqlite:///./data/poiro.db` |
+| `CORS_ORIGINS` | `http://localhost:3000` *(temporary — update after Vercel)* |
+
+Railway injects **`PORT`** automatically — do not set it yourself.
+
+#### A6. Verify deploy
+
+1. Wait until deploy status is **Success** (green).
+2. Open `RAILWAY_URL/health` in the browser.  
+   Expected: `{"status":"ok","ai_provider":"gemini","gemini_configured":true}`
+3. Open `RAILWAY_URL/docs` to see Swagger UI (optional).
+
+If deploy fails, check **Deploy Logs** for missing `email-validator` — the repo’s `requirements.txt` already includes it.
+
+---
+
+### Part B — Frontend on Vercel (~10 min)
+
+#### B1. Create a Vercel account
+
+1. Go to [vercel.com](https://vercel.com) → sign in with **GitHub**.
+
+#### B2. Import the project
+
+1. Click **Add New…** → **Project**.
+2. Import **`sarthaktomar579/poiro-ai-battle-room`**.
+
+#### B3. Configure the project
+
+| Setting | Value |
+|---------|--------|
+| **Framework Preset** | Next.js |
+| **Root Directory** | `frontend` (click Edit → set to `frontend`) |
+| **Build Command** | default (`next build`) |
+| **Output Directory** | default (`.next`) |
+
+#### B4. Environment variables
+
+Before deploying, add:
+
+| Name | Value |
+|------|--------|
+| `NEXT_PUBLIC_API_URL` | `https://YOUR-RAILWAY-URL` *(no trailing slash)* |
+| `NEXT_PUBLIC_WS_URL` | `wss://YOUR-RAILWAY-URL` *(same host, `wss` not `ws`)* |
+
+Example:
+
+```env
+NEXT_PUBLIC_API_URL=https://poiro-api-production.up.railway.app
+NEXT_PUBLIC_WS_URL=wss://poiro-api-production.up.railway.app
+```
+
+#### B5. Deploy
+
+1. Click **Deploy**.
+2. Wait for the build to finish.
+3. Copy your live URL, e.g. `https://poiro-battle-room.vercel.app`  
+   — call this **`VERCEL_URL`**.
+
+---
+
+### Part C — Connect frontend and backend (CORS)
+
+The browser blocks API calls unless the backend allows your Vercel origin.
+
+1. Go back to **Railway** → your backend service → **Variables**.
+2. Update **`CORS_ORIGINS`** to include both local and production:
+
+```env
+http://localhost:3000,https://YOUR-VERCEL-URL.vercel.app
+```
+
+Example:
+
+```env
+CORS_ORIGINS=http://localhost:3000,https://poiro-battle-room.vercel.app
+```
+
+3. Railway will **redeploy** automatically after saving variables.
+
+---
+
+### Part D — Test the hosted app
+
+1. Open **`VERCEL_URL`** in the browser.
+2. Sign in: **`host@poiro.ai`** / **`battleroom`** (seeded on each Railway deploy).
+3. Create a room → copy the room code.
+4. Open an **incognito** window → same URL → sign in as **`ada@poiro.ai`** / **`battleroom`** → join with the code.
+5. Host: **Start round** → Participant: **Submit** → watch jobs complete.
+6. Host: **Score** → **Pick winner** → **End room**.
+
+If login fails with “Cannot reach the backend”, double-check `NEXT_PUBLIC_API_URL` and that Railway `/health` works.
+
+---
+
+### Submission email snippet
+
+```
+Demo (hosted): https://YOUR-VERCEL-URL.vercel.app
+GitHub: https://github.com/sarthaktomar579/poiro-ai-battle-room
+API health: https://YOUR-RAILWAY-URL/health
+
+Demo login: host@poiro.ai / battleroom
+```
+
+---
+
+### Deploy checklist
+
+- [ ] Railway root directory = `backend`
+- [ ] Railway public domain generated
+- [ ] `SECRET_KEY` and `GEMINI_API_KEY` set on Railway
+- [ ] `/health` returns OK on Railway URL
+- [ ] Vercel root directory = `frontend`
+- [ ] `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` point to Railway (`wss://`)
+- [ ] `CORS_ORIGINS` on Railway includes your Vercel URL
+- [ ] Full battle flow tested on the Vercel link
+
+---
+
+## 6. Demo at a glance
 
 ```
 Host  →  Create room  →  Share code  →  Start round
@@ -328,7 +501,7 @@ Demo logins are listed in [§3 Configuration & demo accounts](#3-configuration--
 
 ---
 
-## 6. Architecture overview
+## 7. Architecture overview
 
 ```
 ┌──────────────────────────────┐         ┌──────────────────────────────┐
@@ -383,7 +556,7 @@ Demo logins are listed in [§3 Configuration & demo accounts](#3-configuration--
 
 ---
 
-## 7. Database schema
+## 8. Database schema
 
 SQLite via SQLAlchemy 2.0. The schema mirrors the assignment's required
 entities so the README diagram and the code stay 1:1.
@@ -415,7 +588,7 @@ features.
 
 ---
 
-## 8. Realtime event model
+## 9. Realtime event model
 
 All event names live in [`backend/app/events.py`](backend/app/events.py)
 so the client and server cannot drift. Every WS payload is shaped:
@@ -448,7 +621,7 @@ reattach.
 
 ---
 
-## 9. Generation job lifecycle
+## 10. Generation job lifecycle
 
 ```
         ┌─────────┐    worker picks    ┌─────────┐
@@ -491,7 +664,7 @@ is already structured for it.
 
 ---
 
-## 10. Battle / judging mechanism (the intentional gap)
+## 11. Battle / judging mechanism (the intentional gap)
 
 The assignment intentionally leaves *“what makes one submission better
 than another”* open and asks us to defend our choice.
@@ -534,7 +707,7 @@ than another”* open and asks us to defend our choice.
 
 ---
 
-## 11. What is persisted vs. ephemeral
+## 12. What is persisted vs. ephemeral
 
 Persisted (SQLite):
 
@@ -554,7 +727,7 @@ Ephemeral (in-process):
 
 ---
 
-## 12. Failure handling strategy
+## 13. Failure handling strategy
 
 | Failure                         | Surface                                              |
 |---------------------------------|------------------------------------------------------|
@@ -575,7 +748,7 @@ exploding submission can't hang the room.
 
 ---
 
-## 13. Roles & backend-enforced permissions
+## 14. Roles & backend-enforced permissions
 
 The assignment calls this out as a strong signal vs. a common pitfall.
 Every privileged action goes through one of two FastAPI dependencies:
@@ -601,7 +774,7 @@ returns a 403.
 
 ---
 
-## 14. Tradeoffs & explicit non-goals
+## 15. Tradeoffs & explicit non-goals
 
 | Tradeoff                                        | Reason                                                                                 |
 |-------------------------------------------------|----------------------------------------------------------------------------------------|
@@ -620,7 +793,7 @@ explicit non-goals.
 
 ---
 
-## 15. Known limitations
+## 16. Known limitations
 
 1. **Worker is in-process.** If the server crashes mid-round, jobs that
    were `running` will not be picked back up on restart. I do persist
@@ -644,7 +817,7 @@ explicit non-goals.
 
 ---
 
-## 16. What I would improve with more time
+## 17. What I would improve with more time
 
 In rough priority order:
 
@@ -668,7 +841,7 @@ In rough priority order:
 
 ---
 
-## 17. Repo layout
+## 18. Repo layout
 
 ```
 poiro-ai-battle-room/
