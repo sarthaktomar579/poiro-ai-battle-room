@@ -281,6 +281,26 @@ GEMINI_MODEL=gemini-2.5-flash
 
 Restart the backend.
 
+### Gemini 429 / “exceeded your current quota”
+
+Google’s free tier is mostly **per minute** (often ~5 requests/min on flash models), not “once per day.” Your **first submit of the day** can still get 429 because:
+
+1. **Earlier tests today** — each failed/successful round while fixing CORS/deploy still counted toward the same API key.
+2. **One submission used several API calls** — older code tried up to **5 model fallbacks** on 404 and **retried** failed jobs, which can exhaust 5/min instantly.
+3. **Wrong model on Railway** — if `GEMINI_MODEL` is `gemini-1.5-flash`, limits are tighter; use `gemini-2.5-flash`.
+
+**Now fixed:** max **2** model tries per job, **no retry** on timeout/quota, **mock fallback** on 429, default `JOB_MAX_ATTEMPTS=1`.
+
+**Default behavior (since this fix):** when Gemini returns **429 / quota**, the worker completes the job with **mock output** and provider label `mock:gemini-quota-fallback` so the battle room flow still works for demos.
+
+To disable that and surface hard failures instead:
+
+```env
+GEMINI_FALLBACK_TO_MOCK=false
+```
+
+For a fully offline demo, set `AI_PROVIDER=mock` on Railway (no Google calls).
+
 ### “Host privileges required” or “Only the host can end the room”
 
 You are signed in as a **participant**, not the **room creator**.
@@ -697,7 +717,7 @@ than another”* open and asks us to defend our choice.
 * **Single-rater variance.** No inter-rater reliability check.
 * **Cold start.** With 0 submissions, the leaderboard is empty.
 
-### How I would harden it in production (see §16)
+### How I would harden it in production (see §17)
 
 * Add a second axis: **audience voting** (1 vote per participant, 30s
   window after generation), and surface both scores.
@@ -722,7 +742,7 @@ Ephemeral (in-process):
   room id"). On restart, clients reconnect and hydrate from the DB.
 * The asyncio job queue — *on restart, jobs that were `queued` in DB
   but never re-enqueued would stay in `queued` indefinitely.* This is a
-  known limitation (§15); a startup hook to re-enqueue any non-terminal
+  known limitation (§16); a startup hook to re-enqueue any non-terminal
   jobs would fix it in ~10 lines.
 
 ---

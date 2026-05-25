@@ -32,7 +32,8 @@ from .. import models
 from ..config import get_settings
 from ..database import SessionLocal
 from ..providers import get_provider
-from ..providers.base import ProviderError
+from ..providers.base import GenerationResult, ProviderError, is_quota_or_rate_limit_error
+from ..providers.mock import MockProvider
 from ..ws.manager import manager
 
 log = logging.getLogger("poiro.worker")
@@ -113,10 +114,54 @@ async def _process_job(job_id: str) -> None:
             ev.JOB_TIMED_OUT,
             {"job_id": job_id, "submission_id": submission_id},
         )
-        await _maybe_retry(job_id, room_id, submission_id, attempt, transient=True)
+        # Timeouts are not retried — a retry often stacks with quota limits.
         await _maybe_advance_round(room_id)
         return
     except ProviderError as e:
+        if (
+            settings.gemini_fallback_to_mock
+            and is_quota_or_rate_limit_error(e)
+        ):
+            try:
+                mock = MockProvider(
+                    min_latency=0.4,
+                    max_latency=0.8,
+                    failure_rate=0.0,
+                    timeout_rate=0.0,
+                )
+                result = await asyncio.wait_for(
+                    mock.generate(prompt, context=brief),
+                    timeout=settings.job_timeout_seconds,
+                )
+                result = GenerationResult(
+                    output=(
+                        f"[Gemini quota reached — mock fallback for demo]\n\n"
+                        f"{result.output}"
+                    ),
+                    provider="mock:gemini-quota-fallback",
+                )
+            except Exception as fallback_err:  # noqa: BLE001
+                log.warning("Mock fallback after quota error failed: %s", fallback_err)
+            else:
+                _finalize(
+                    job_id,
+                    status=models.JobStatus.completed,
+                    output=result.output,
+                    provider=result.provider,
+                )
+                await manager.broadcast(
+                    room_id,
+                    ev.JOB_COMPLETED,
+                    {
+                        "job_id": job_id,
+                        "submission_id": submission_id,
+                        "output": result.output,
+                        "provider": result.provider,
+                    },
+                )
+                await _maybe_advance_round(room_id)
+                return
+
         _finalize(job_id, status=models.JobStatus.failed, error=str(e))
         await manager.broadcast(
             room_id,

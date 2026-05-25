@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
+from ..config import get_settings
 from .base import AIProvider, GenerationResult, ProviderError
 
 try:
@@ -53,16 +54,24 @@ class GeminiProvider(AIProvider):
             raise ProviderError("GEMINI_API_KEY is empty")
         genai.configure(api_key=api_key)
         self._api_key = api_key
+        settings = get_settings()
         self._model_name = _normalize_model_name(model)
-        self._models_to_try = self._build_model_chain(self._model_name)
+        self._models_to_try = self._build_model_chain(
+            self._model_name,
+            max_attempts=settings.gemini_max_model_attempts,
+        )
 
     @staticmethod
-    def _build_model_chain(primary: str) -> list[str]:
+    def _build_model_chain(primary: str, *, max_attempts: int) -> list[str]:
+        """At most ``max_attempts`` model IDs — avoids 5+ API calls per submission."""
+        cap = max(1, max_attempts)
         chain = [primary]
         for m in _FALLBACK_MODELS:
+            if len(chain) >= cap:
+                break
             if m not in chain:
                 chain.append(m)
-        return chain
+        return chain[:cap]
 
     async def generate(self, prompt: str, *, context: str = "") -> GenerationResult:
         full_prompt = (
@@ -92,8 +101,15 @@ class GeminiProvider(AIProvider):
                     # Try the next model when this ID is unavailable.
                     if "404" in msg or "not found" in msg or "not supported" in msg:
                         continue
+                    from .base import is_quota_or_rate_limit_error
+
+                    if is_quota_or_rate_limit_error(e):
+                        raise ProviderError(
+                            f"Gemini error: {e}", retriable=False
+                        ) from e
                     retriable = any(
-                        t in msg for t in ("rate", "timeout", "unavailable", "503", "429")
+                        t in msg
+                        for t in ("timeout", "unavailable", "503", "temporarily")
                     )
                     raise ProviderError(f"Gemini error: {e}", retriable=retriable) from e
 

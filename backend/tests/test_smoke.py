@@ -21,6 +21,7 @@ from app.auth import create_access_token, decode_token, hash_password, verify_pa
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app import models, services  # noqa: E402
 from app.deps import require_host  # noqa: E402
+from app.providers.base import is_quota_or_rate_limit_error  # noqa: E402
 from app.providers.mock import MockProvider  # noqa: E402
 
 
@@ -119,6 +120,13 @@ def test_room_owner_can_require_host_without_participant_row():
         with pytest.raises(HTTPException) as exc:
             require_host(room.id, other, db)
         assert exc.value.status_code == 403
+
+
+def test_quota_error_detection():
+    assert is_quota_or_rate_limit_error(
+        Exception("429 You exceeded your current quota")
+    )
+    assert not is_quota_or_rate_limit_error(Exception("404 model not found"))
 
 
 def test_mock_provider_returns_output():

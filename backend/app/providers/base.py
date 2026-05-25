@@ -13,6 +13,23 @@ class ProviderError(Exception):
         self.retriable = retriable
 
 
+def is_quota_or_rate_limit_error(exc: BaseException) -> bool:
+    """True when Gemini (or similar) rejected the call due to quota / rate limits."""
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "429",
+            "quota",
+            "rate limit",
+            "rate_limit",
+            "resource_exhausted",
+            "exceeded your current quota",
+            "too many requests",
+        )
+    )
+
+
 @dataclass
 class GenerationResult:
     output: str

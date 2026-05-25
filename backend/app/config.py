@@ -35,11 +35,17 @@ class Settings(BaseSettings):
     ai_provider: str = "gemini"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
+    # When Gemini returns 429 / quota errors, complete the job with mock output.
+    gemini_fallback_to_mock: bool = True
+    # Cap how many Gemini model IDs we try per job (404 fallbacks only). Stops one
+    # submission from burning the free-tier RPM limit (often 5/min).
+    gemini_max_model_attempts: int = 2
 
     # Worker
     worker_concurrency: int = 3
     job_timeout_seconds: int = 45
-    job_max_attempts: int = 2
+    # One provider call per submission by default (retries doubled quota usage).
+    job_max_attempts: int = 1
 
     @field_validator("ai_provider")
     @classmethod
